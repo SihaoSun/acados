@@ -33,7 +33,6 @@
 #
 
 import numpy as np
-import casadi as ca
 import os
 from .acados_model import AcadosModel
 from .utils import get_acados_path, get_lib_ext
@@ -112,13 +111,16 @@ class AcadosSimOpts:
         self.__sim_method_num_stages = 1
         self.__sim_method_num_steps = 1
         self.__sim_method_newton_iter = 3
+        # doubles
+        self.__sim_method_newton_tol = 0.0
         # bools
         self.__sens_forw = True
         self.__sens_adj = False
         self.__sens_algebraic = False
         self.__sens_hess = False
-        self.__output_z = False
+        self.__output_z = True
         self.__sim_method_jac_reuse = 0
+        self.__ext_fun_compile_flags = '-O2'
 
     @property
     def integrator_type(self):
@@ -139,6 +141,15 @@ class AcadosSimOpts:
     def newton_iter(self):
         """Number of Newton iterations in simulation method. Default: 3"""
         return self.__sim_method_newton_iter
+
+    @property
+    def newton_tol(self):
+        """
+        Tolerance for Newton system solved in implicit integrator (IRK, GNSF).
+        0.0 means this is not used and exactly newton_iter iterations are carried out.
+        Default: 0.0
+        """
+        return self.__sim_method_newton_tol
 
     @property
     def sens_forw(self):
@@ -162,7 +173,7 @@ class AcadosSimOpts:
 
     @property
     def output_z(self):
-        """Boolean determining if values for algebraic variables (corresponding to start of simulation interval) are computed. Default: False"""
+        """Boolean determining if values for algebraic variables (corresponding to start of simulation interval) are computed. Default: True"""
         return self.__output_z
 
     @property
@@ -183,6 +194,21 @@ class AcadosSimOpts:
         Default: GAUSS_LEGENDRE
         """
         return self.__collocation_type
+
+    @property
+    def ext_fun_compile_flags(self):
+        """
+        String with compiler flags for external function compilation.
+        Default: '-O2'.
+        """
+        return self.__ext_fun_compile_flags
+
+    @ext_fun_compile_flags.setter
+    def ext_fun_compile_flags(self, ext_fun_compile_flags):
+        if isinstance(ext_fun_compile_flags, str):
+            self.__ext_fun_compile_flags = ext_fun_compile_flags
+        else:
+            raise Exception('Invalid ext_fun_compile_flags, expected a string.\n')
 
     @integrator_type.setter
     def integrator_type(self, integrator_type):
@@ -226,6 +252,13 @@ class AcadosSimOpts:
             self.__sim_method_newton_iter = newton_iter
         else:
             raise Exception('Invalid newton_iter value. newton_iter must be an integer.')
+
+    @newton_tol.setter
+    def newton_tol(self, newton_tol):
+        if isinstance(newton_tol, float):
+            self.__sim_method_newton_tol = newton_tol
+        else:
+            raise Exception('Invalid newton_tol value. newton_tol must be an float.')
 
     @sens_forw.setter
     def sens_forw(self, sens_forw):
@@ -304,8 +337,12 @@ class AcadosSim:
         """Path to where code will be exported. Default: `c_generated_code`."""
         self.shared_lib_ext = get_lib_ext()
 
-        self.cython_include_dirs = ''
+        # get cython paths
+        from sysconfig import get_paths
+        self.cython_include_dirs = [np.get_include(), get_paths()['include']]
+
         self.__parameter_values = np.array([])
+        self.__problem_class = 'SIM'
 
     @property
     def parameter_values(self):

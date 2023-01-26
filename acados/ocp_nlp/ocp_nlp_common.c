@@ -1923,6 +1923,12 @@ void ocp_nlp_alias_memory_to_submodules(ocp_nlp_config *config, ocp_nlp_dims *di
 #endif
 
     int N = dims->N;
+    // TODO: For z, why dont we use nlp_out->z+i instead of nlp_mem->z_alg+i? as is done for ux.
+    //  - z_alg contains values from integrator, used in cost and constraint linearization.
+    //  - nlp_out->z is updated as nlp_out->z = mem->z_alg + alpha * dzdux * qp_out->ux
+    // Probably, this can also be achieved without mem->z_alg.
+    // Would it work to initialize integrator always with z_out? Probably no, e.g. for lifted IRK.
+
 
     // alias to dynamics_memory
 #if defined(ACADOS_WITH_OPENMP)
@@ -2087,7 +2093,7 @@ void ocp_nlp_approximate_qp_matrices(ocp_nlp_config *config, ocp_nlp_dims *dims,
 #endif
     for (int i = 0; i <= N; i++)
     {
-        // init Hessian to 0 
+        // init Hessian to 0
         blasfeo_dgese(nu[i] + nx[i], nu[i] + nx[i], 0.0, mem->qp_in->RSQrq+i, 0, 0);
 
 
@@ -2537,10 +2543,10 @@ double ocp_nlp_line_search(ocp_nlp_config *config, ocp_nlp_dims *dims, ocp_nlp_i
     double tmp0, tmp1, merit_fun1;
     ocp_qp_out *qp_out = mem->qp_out;
 
-    // Line search version Jonathan
     // Following Leineweber1999, Section "3.5.1 Line Search Globalization"
     // TODO: check out more advanced step search Leineweber1995
 
+    // TODO: check that z is updated in tmp_nlp_out?
     if (opts->globalization == MERIT_BACKTRACKING)
     {
         // copy out (current iterate) to work->tmp_nlp_out
@@ -2760,10 +2766,51 @@ void ocp_nlp_update_variables_sqp(ocp_nlp_config *config, ocp_nlp_dims *dims, oc
         // linear update of algebraic variables using state and input sensitivity
         if (i < N)
         {
+            // out->z = mem->z_alg + alpha * dzdux * qp_out->ux
             blasfeo_dgemv_t(nu[i]+nx[i], nz[i], alpha, mem->dzduxt+i, 0, 0,
                     mem->qp_out->ux+i, 0, 1.0, mem->z_alg+i, 0, out->z+i, 0);
         }
     }
+}
+
+
+int ocp_nlp_precompute_common(ocp_nlp_config *config, ocp_nlp_dims *dims, ocp_nlp_in *in,
+            ocp_nlp_out *out, ocp_nlp_opts *opts, ocp_nlp_memory *mem, ocp_nlp_workspace *work)
+{
+    int N = dims->N;
+    int status = ACADOS_SUCCESS;
+    int ii;
+
+    for (ii = 0; ii <= N; ii++)
+    {
+        int module_val;
+        config->constraints[ii]->dims_get(config->constraints[ii], dims->constraints[ii], "ns", &module_val);
+        if (dims->ns[ii] != module_val)
+        {
+            printf("ocp_nlp_sqp_precompute: inconsistent dimension ns for stage %d with constraint module, got %d, module: %d.",
+                   ii, dims->ns[ii], module_val);
+            exit(1);
+        }
+    }
+
+    // precompute
+    for (ii = 0; ii < N; ii++)
+    {
+        // set T
+        config->dynamics[ii]->model_set(config->dynamics[ii], dims->dynamics[ii],
+                                        in->dynamics[ii], "T", in->Ts+ii);
+        // dynamics precompute
+        status = config->dynamics[ii]->precompute(config->dynamics[ii], dims->dynamics[ii],
+                                                in->dynamics[ii], opts->dynamics[ii],
+                                                mem->dynamics[ii], work->dynamics[ii]);
+        if (status != ACADOS_SUCCESS)
+            return status;
+
+        // cost precompute
+        config->cost[ii]->precompute(config->cost[ii], dims->cost[ii], in->cost[ii],
+                                     opts->cost[ii], mem->cost[ii], work->cost[ii]);
+    }
+    return status;
 }
 
 

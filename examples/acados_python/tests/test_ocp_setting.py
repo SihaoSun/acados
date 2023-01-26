@@ -32,10 +32,12 @@
 #
 
 import sys
-sys.path.insert(0, '../getting_started/common')
+sys.path.insert(0, '../pendulum_on_cart/common')
 
 from acados_template import *
 from pendulum_model import export_pendulum_ode_model
+from casadi import vertcat
+import json
 import numpy as np
 import scipy.linalg
 import argparse
@@ -251,12 +253,14 @@ ocp.solver_options.nlp_solver_max_iter = 200
 ocp.solver_options.qp_solver_iter_max = 50
 ocp.solver_options.print_level = 0
 
+ocp.solver_options.ext_fun_compile_flags = ''
+
 # set prediction horizon
 ocp.solver_options.tf = Tf
 ocp.solver_options.nlp_solver_type = SOLVER_TYPE
 
 if ocp.solver_options.integrator_type == 'GNSF':
-    with open('../getting_started/common/' + model.name + '_gnsf_functions.json', 'r') as f:
+    with open('../pendulum_on_cart/common/' + model.name + '_gnsf_functions.json', 'r') as f:
         gnsf_dict = json.load(f)
     ocp.gnsf_model = gnsf_dict
 
@@ -264,7 +268,7 @@ ocp_solver = AcadosOcpSolver(ocp, json_file = 'acados_ocp.json')
 
 # initialize solver
 x_traj_init = np.transpose( np.vstack( [np.zeros((N+1,)), \
-     np.arange(pi, -pi/N,- pi/N), np.zeros((N+1,)), np.zeros((N+1,))]) )
+     np.arange(np.pi, -np.pi/N,- np.pi/N), np.zeros((N+1,)), np.zeros((N+1,))]) )
 for i in range(N+1):
     ocp_solver.set(i, "x", x_traj_init[i])
 

@@ -45,6 +45,7 @@
 #include "acados/ocp_nlp/ocp_nlp_cost_external.h"
 #include "acados/ocp_nlp/ocp_nlp_cost_ls.h"
 #include "acados/ocp_nlp/ocp_nlp_cost_nls.h"
+#include "acados/ocp_nlp/ocp_nlp_cost_conl.h"
 #include "acados/ocp_nlp/ocp_nlp_dynamics_cont.h"
 #include "acados/ocp_nlp/ocp_nlp_dynamics_disc.h"
 #include "acados/ocp_nlp/ocp_nlp_constraints_bgh.h"
@@ -236,6 +237,9 @@ ocp_nlp_config *ocp_nlp_config_create(ocp_nlp_plan_t plan)
                 break;
             case NONLINEAR_LS:
                 ocp_nlp_cost_nls_config_initialize_default(config->cost[i]);
+                break;
+            case CONVEX_OVER_NONLINEAR:
+                ocp_nlp_cost_conl_config_initialize_default(config->cost[i]);
                 break;
             case EXTERNAL:
                 ocp_nlp_cost_external_config_initialize_default(config->cost[i]);
@@ -446,6 +450,18 @@ int ocp_nlp_constraints_model_set(ocp_nlp_config *config, ocp_nlp_dims *dims,
     return constr_config->model_set(constr_config, dims->constraints[stage],
             in->constraints[stage], field, value);
 }
+
+
+void ocp_nlp_constraints_model_get(ocp_nlp_config *config, ocp_nlp_dims *dims,
+        ocp_nlp_in *in, int stage, const char *field, void *value)
+{
+    ocp_nlp_constraints_config *constr_config = config->constraints[stage];
+
+    constr_config->model_get(constr_config, dims->constraints[stage],
+            in->constraints[stage], field, value);
+    return;
+}
+
 
 
 
@@ -747,21 +763,95 @@ void ocp_nlp_constraint_dims_get_from_attr(ocp_nlp_config *config, ocp_nlp_dims 
 }
 
 
-void ocp_nlp_dynamics_dims_get_from_attr(ocp_nlp_config *config, ocp_nlp_dims *dims, ocp_nlp_out *out,
+void ocp_nlp_qp_dims_get_from_attr(ocp_nlp_config *config, ocp_nlp_dims *dims, ocp_nlp_out *out,
         int stage, const char *field, int *dims_out)
 {
-    // vectors first
-    dims_out[1] = 0;
     // only matrices here matrices
+    // dynamics
     if (!strcmp(field, "A"))
     {
-        config->dynamics[stage]->dims_get(config->dynamics[stage], dims->dynamics[stage],
-                                          "nx1", &dims_out[0]);
+        dims_out[0] = dims->nx[stage+1];
         dims_out[1] = dims->nx[stage];
+    }
+    else if (!strcmp(field, "B"))
+    {
+        dims_out[0] = dims->nx[stage+1];
+        dims_out[1] = dims->nu[stage];
+    }
+    else if (!strcmp(field, "b"))
+    {
+        dims_out[0] = 1;
+        dims_out[1] = dims->nx[stage+1];
+    }
+    else if (!strcmp(field, "Q"))
+    {
+        dims_out[0] = dims->nx[stage];
+        dims_out[1] = dims->nx[stage];
+    }
+    else if (!strcmp(field, "R"))
+    {
+        dims_out[0] = dims->nu[stage];
+        dims_out[1] = dims->nu[stage];
+    }
+    else if (!strcmp(field, "S"))
+    {
+        dims_out[0] = dims->nx[stage];
+        dims_out[1] = dims->nu[stage];
+    }
+    else if (!strcmp(field, "r"))
+    {
+        dims_out[0] = 1;
+        dims_out[1] = dims->nu[stage];
+    }
+    else if (!strcmp(field, "q"))
+    {
+        dims_out[0] = 1;
+        dims_out[1] = dims->nx[stage];
+    }
+    // constraints
+    else if (!strcmp(field, "C"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "ng", &dims_out[0]);
+        dims_out[1] = dims->nx[stage];
+    }
+    else if (!strcmp(field, "D"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "ng", &dims_out[0]);
+        dims_out[1] = dims->nu[stage];
+    }
+    else if (!strcmp(field, "lg"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "ng", &dims_out[0]);
+        dims_out[1] = 1;
+    }
+    else if (!strcmp(field, "ug"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "ng", &dims_out[0]);
+        dims_out[1] = 1;
+    }
+    else if (!strcmp(field, "lbx"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "nbx", &dims_out[0]);
+        dims_out[1] = 1;
+    }
+    else if (!strcmp(field, "ubx"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "nbx", &dims_out[0]);
+        dims_out[1] = 1;
+    }
+    else if (!strcmp(field, "lbu"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "nbu", &dims_out[0]);
+        dims_out[1] = 1;
+    }
+    else if (!strcmp(field, "ubu"))
+    {
+        config->qp_solver->dims_get(config->qp_solver, dims->qp_solver, stage, "nbu", &dims_out[0]);
+        dims_out[1] = 1;
     }
     else
     {
-        printf("\nerror: ocp_nlp_dynamics_dims_get_from_attr: field %s not available\n", field);
+        printf("\nerror: ocp_nlp_qp_dims_get_from_attr: field %s not available\n", field);
         exit(1);
     }
 }
@@ -1042,6 +1132,91 @@ void ocp_nlp_get_at_stage(ocp_nlp_config *config, ocp_nlp_dims *dims, ocp_nlp_so
         double *double_values = value;
         d_ocp_qp_get_A(stage, nlp_mem->qp_in, double_values);
     }
+    else if (!strcmp(field, "B"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_B(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "b"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_b(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "Q"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_Q(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "R"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_R(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "S"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_S(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "r"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_r(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "q"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_q(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "lbx"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_lbx(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "ubx"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_ubx(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "lbu"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_lbu(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "ubu"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_ubu(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "lb"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_lb(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "ub"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_ub(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "C"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_C(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "D"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_D(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "lg"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_lg(stage, nlp_mem->qp_in, double_values);
+    }
+    else if (!strcmp(field, "ug"))
+    {
+        double *double_values = value;
+        d_ocp_qp_get_ug(stage, nlp_mem->qp_in, double_values);
+    }
     else
     {
         printf("\nerror: ocp_nlp_get_at_stage: field %s not available\n", field);
@@ -1088,8 +1263,7 @@ void ocp_nlp_set(ocp_nlp_config *config, ocp_nlp_solver *solver,
     }
     else
     {
-        printf("\nerror: ocp_nlp_mem_set: field %s not available\n", field);
+        printf("\nerror: ocp_nlp_set: field %s not available\n", field);
         exit(1);
     }
-    // printf("exit ocp_nlp_set\n");
 }

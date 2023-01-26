@@ -64,13 +64,15 @@ endif()
 
 option(ACADOS_WITH_OPENMP "OpenMP Parallelization" OFF)
 option(ACADOS_SILENT "No console status output" OFF)
+option(ACADOS_DEBUG_SQP_PRINT_QPS_TO_FILE "Print QP inputs and outputs to file in SQP" OFF)
 
 # Additional targets
 option(ACADOS_UNIT_TESTS "Compile Unit tests" OFF)
 option(ACADOS_EXAMPLES "Compile Examples" OFF)
 option(ACADOS_LINT "Compile Lint" OFF)
-# Extarnal libs
-option(ACADOS_WITH_QPOASES  "qpOASES solver" OFF)
+# External libs
+option(ACADOS_WITH_QPOASES "qpOASES solver" OFF)
+option(ACADOS_WITH_DAQP "DAQP solver" OFF)
 option(ACADOS_WITH_HPMPC "HPMPC solver" OFF)
 option(ACADOS_WITH_QORE "QORE solver" OFF)
 option(ACADOS_WITH_OOQP "OOQP solver" OFF)
@@ -94,7 +96,6 @@ if(NOT CMAKE_BUILD_TYPE)
         CACHE STRING "Valid build types are: \
         Release (default), None, Debug, WithExternalLibs, RelWithDebInfo, MinSizeRel." FORCE)
 endif()
-### Defaults
 
 message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
 
@@ -162,6 +163,12 @@ if(ACADOS_SILENT)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DACADOS_SILENT")
 endif()
 
+if(ACADOS_DEBUG_SQP_PRINT_QPS_TO_FILE)
+    message(STATUS "ACADOS_DEBUG_SQP_PRINT_QPS_TO_FILE is ON")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DACADOS_DEBUG_SQP_PRINT_QPS_TO_FILE")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DACADOS_DEBUG_SQP_PRINT_QPS_TO_FILE")
+endif()
+
 # uninstall
 if(NOT TARGET uninstall)
     # Configure Uninstall
@@ -184,6 +191,7 @@ if(CMAKE_BUILD_TYPE MATCHES WithExternalLibs)
     set(ACADOS_WITH_QORE ON CACHE BOOL "Add QORE solver")
     set(ACADOS_WITH_OOQP ON CACHE BOOL "Add OOQP solver")
     set(ACADOS_WITH_QPOASES ON CACHE BOOL "Add qpOASES solver")
+	set(ACADOS_WITH_DAQP ON CACHE BOOL "Add DAQP solver")
     set(ACADOS_WITH_QPDUNES ON CACHE BOOL "Add qpDUNES solver")
     set(ACADOS_WITH_OSQP ON CACHE BOOL "Add OSQP solver")
 endif()
@@ -290,6 +298,9 @@ endif()
 if(${ACADOS_WITH_QPOASES})
     set(LINK_FLAG_QPOASES -lqpOASES_e)
 endif()
+if(${ACADOS_WITH_DAQP})
+    set(LINK_FLAG_DAQP -ldaqp)
+endif()
 if(${ACADOS_WITH_QPDUNES})
     set(LINK_FLAG_QPDUNES -lqpdunes)
 endif()
@@ -310,6 +321,7 @@ endif()
 file(WRITE lib/link_libs.json {\n)
 file(APPEND lib/link_libs.json \t\"openmp\":\ \"${LINK_FLAG_OPENMP}\",\n)
 file(APPEND lib/link_libs.json \t\"qpoases\":\ \"${LINK_FLAG_QPOASES}\",\n)
+file(APPEND lib/link_libs.json \t\"daqp\":\ \"${LINK_FLAG_DAQP}\",\n)
 file(APPEND lib/link_libs.json \t\"qpdunes\":\ \"${LINK_FLAG_QPDUNES}\",\n)
 file(APPEND lib/link_libs.json \t\"osqp\":\ \"${LINK_FLAG_OSQP}\",\n)
 file(APPEND lib/link_libs.json \t\"hpmpc\":\ \"${LINK_FLAG_HPMPC}\",\n)

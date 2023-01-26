@@ -39,12 +39,13 @@ mex_flags = getenv('ACADOS_MEX_FLAGS');
 
 % set paths
 acados_mex_folder = fullfile(acados_folder, 'interfaces', 'acados_matlab_octave');
-acados_include = ['-I', acados_folder];
-acados_interfaces_include = ['-I', fullfile(acados_folder, 'interfaces')];
-external_include = ['-I', fullfile(acados_folder, 'external')];
-blasfeo_include = ['-I', fullfile(acados_folder, 'external', 'blasfeo', 'include')];
-hpipm_include = ['-I', fullfile(acados_folder, 'external', 'hpipm', 'include')];
-acados_lib_path = ['-L', fullfile(acados_folder, 'lib')];
+acados_include = ['-I' fullfile(acados_folder,'include')];
+acados_interfaces_include = ['-I' fullfile(acados_folder, 'interfaces')];
+external_include = ['-I' fullfile(acados_folder, 'external')];
+blasfeo_include = ['-I' fullfile(acados_folder, 'include' , 'blasfeo', 'include')];
+hpipm_include = ['-I' fullfile(acados_folder, 'include' , 'hpipm', 'include')];
+acados_lib_path = ['-L' fullfile(acados_folder, 'lib')];
+
 
 mex_names = { ...
     'ocp_create', ...
@@ -96,6 +97,9 @@ if is_octave()
     if ~isempty(libs.qpoases)
         defines_tmp = [defines_tmp, ' -DACADOS_WITH_QPOASES'];
     end
+    if ~isempty(libs.daqp)
+        defines_tmp = [defines_tmp, ' -DACADOS_WITH_DAQP'];
+    end
     if ~isempty(libs.osqp)
         defines_tmp = [defines_tmp, ' -DACADOS_WITH_OSQP'];
     end
@@ -133,6 +137,9 @@ if ~is_octave()
     if ~isempty(libs.qpoases)
         defines_tmp = [defines_tmp, ' -DACADOS_WITH_QPOASES'];
     end
+    if ~isempty(libs.daqp)
+        defines_tmp = [defines_tmp, ' -DACADOS_WITH_DAQP'];
+    end
     if ~isempty(libs.osqp)
         defines_tmp = [defines_tmp, ' -DACADOS_WITH_OSQP'];
     end
@@ -168,7 +175,7 @@ for ii=1:length(mex_files)
         % NOTE: empty linker flags do not work in Octave
         mex(mex_flags, FLAGS, LDFLAGS, COMPDEFINES, COMPFLAGS, acados_include, acados_interfaces_include, external_include, blasfeo_include, hpipm_include,...
             acados_lib_path, '-lacados', '-lhpipm', '-lblasfeo', libs.qpoases,...
-            libs.qpdunes, libs.osqp, libs.hpmpc, libs.ooqp, mex_files{ii}, '-outdir', opts.output_dir)
+            libs.daqp, libs.qpdunes, libs.osqp, libs.hpmpc, libs.ooqp, mex_files{ii}, '-outdir', opts.output_dir)
     end
 end
 

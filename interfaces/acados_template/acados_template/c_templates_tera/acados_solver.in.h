@@ -74,6 +74,12 @@
 extern "C" {
 #endif
 
+{%- if not solver_options.custom_update_filename %}
+    {%- set custom_update_filename = "" %}
+{% else %}
+    {%- set custom_update_filename = solver_options.custom_update_filename %}
+{%- endif %}
+
 // ** capsule for solver data **
 typedef struct {{ model.name }}_solver_capsule
 {
@@ -128,6 +134,9 @@ typedef struct {{ model.name }}_solver_capsule
     external_function_param_casadi *cost_y_fun;
     external_function_param_casadi *cost_y_fun_jac_ut_xt;
     external_function_param_casadi *cost_y_hess;
+{% elif cost.cost_type == "CONVEX_OVER_NONLINEAR" %}
+    external_function_param_casadi *conl_cost_fun;
+    external_function_param_casadi *conl_cost_fun_jac_hess;
 {%- elif cost.cost_type == "EXTERNAL" %}
     external_function_param_{{ cost.cost_ext_fun_type }} *ext_cost_fun;
     external_function_param_{{ cost.cost_ext_fun_type }} *ext_cost_fun_jac;
@@ -138,6 +147,9 @@ typedef struct {{ model.name }}_solver_capsule
     external_function_param_casadi cost_y_0_fun;
     external_function_param_casadi cost_y_0_fun_jac_ut_xt;
     external_function_param_casadi cost_y_0_hess;
+{% elif cost.cost_type_0 == "CONVEX_OVER_NONLINEAR" %}
+    external_function_param_casadi conl_cost_0_fun;
+    external_function_param_casadi conl_cost_0_fun_jac_hess;
 {% elif cost.cost_type_0 == "EXTERNAL" %}
     external_function_param_{{ cost.cost_ext_fun_type_0 }} ext_cost_0_fun;
     external_function_param_{{ cost.cost_ext_fun_type_0 }} ext_cost_0_fun_jac;
@@ -148,6 +160,9 @@ typedef struct {{ model.name }}_solver_capsule
     external_function_param_casadi cost_y_e_fun;
     external_function_param_casadi cost_y_e_fun_jac_ut_xt;
     external_function_param_casadi cost_y_e_hess;
+{% elif cost.cost_type_e == "CONVEX_OVER_NONLINEAR" %}
+    external_function_param_casadi conl_cost_e_fun;
+    external_function_param_casadi conl_cost_e_fun_jac_hess;
 {% elif cost.cost_type_e == "EXTERNAL" %}
     external_function_param_{{ cost.cost_ext_fun_type_e }} ext_cost_e_fun;
     external_function_param_{{ cost.cost_ext_fun_type_e }} ext_cost_e_fun_jac;
@@ -174,6 +189,10 @@ typedef struct {{ model.name }}_solver_capsule
 {%- if solver_options.hessian_approx == "EXACT" %}
     external_function_param_casadi nl_constr_h_e_fun_jac_hess;
 {%- endif %}
+{%- endif %}
+
+{%- if custom_update_filename != "" %}
+    void * custom_update_memory;
 {%- endif %}
 
 } {{ model.name }}_solver_capsule;
@@ -206,7 +225,9 @@ ACADOS_SYMBOL_EXPORT int {{ model.name }}_acados_update_params_sparse({{ model.n
 ACADOS_SYMBOL_EXPORT int {{ model.name }}_acados_solve({{ model.name }}_solver_capsule * capsule);
 ACADOS_SYMBOL_EXPORT int {{ model.name }}_acados_free({{ model.name }}_solver_capsule * capsule);
 ACADOS_SYMBOL_EXPORT void {{ model.name }}_acados_print_stats({{ model.name }}_solver_capsule * capsule);
-                     
+ACADOS_SYMBOL_EXPORT int {{ model.name }}_acados_custom_update({{ model.name }}_solver_capsule* capsule, double* data, int data_len);
+
+
 ACADOS_SYMBOL_EXPORT ocp_nlp_in *{{ model.name }}_acados_get_nlp_in({{ model.name }}_solver_capsule * capsule);
 ACADOS_SYMBOL_EXPORT ocp_nlp_out *{{ model.name }}_acados_get_nlp_out({{ model.name }}_solver_capsule * capsule);
 ACADOS_SYMBOL_EXPORT ocp_nlp_out *{{ model.name }}_acados_get_sens_out({{ model.name }}_solver_capsule * capsule);

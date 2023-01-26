@@ -508,9 +508,15 @@ class AcadosOcpCost:
 
     In case of NONLINEAR_LS:
     stage cost is
-    :math:`l(x,u,z) = || y(x,u,z) - y_\\text{ref}||^2_W`,
+    :math:`l(x,u,z,p) = || y(x,u,z,p) - y_\\text{ref}||^2_W`,
     terminal cost is
-    :math:`m(x) = || y^e(x) - y_\\text{ref}^e||^2_{W^e}`
+    :math:`m(x,p) = || y^e(x,p) - y_\\text{ref}^e||^2_{W^e}`
+
+    In case of CONVEX_OVER_NONLINEAR:
+    stage cost is
+    :math:`l(x,u,p) = \psi(y(x,u,p) - y_\\text{ref}, p)`,
+    terminal cost is
+    :math:`m(x, p) = \psi^e (y^e(x,p) - y_\\text{ref}^e, p)`
     """
     def __init__(self):
         # initial stage
@@ -548,7 +554,7 @@ class AcadosOcpCost:
     @property
     def cost_type_0(self):
         """Cost type at initial shooting node (0)
-        -- string in {EXTERNAL, LINEAR_LS, NONLINEAR_LS} or :code:`None`.
+        -- string in {EXTERNAL, LINEAR_LS, NONLINEAR_LS, CONVEX_OVER_NONLINEAR} or :code:`None`.
         Default: :code:`None`.
 
             .. note:: Cost at initial stage is the same as for intermediate shooting nodes if not set differently explicitly.
@@ -653,7 +659,7 @@ class AcadosOcpCost:
     def cost_type(self):
         """
         Cost type at intermediate shooting nodes (1 to N-1)
-        -- string in {EXTERNAL, LINEAR_LS, NONLINEAR_LS}.
+        -- string in {EXTERNAL, LINEAR_LS, NONLINEAR_LS, CONVEX_OVER_NONLINEAR}.
         Default: 'LINEAR_LS'.
         """
         return self.__cost_type
@@ -731,7 +737,7 @@ class AcadosOcpCost:
 
     @cost_type.setter
     def cost_type(self, cost_type):
-        cost_types = ('LINEAR_LS', 'NONLINEAR_LS', 'EXTERNAL')
+        cost_types = ('LINEAR_LS', 'NONLINEAR_LS', 'EXTERNAL', 'CONVEX_OVER_NONLINEAR')
         if cost_type in cost_types:
             self.__cost_type = cost_type
         else:
@@ -739,7 +745,7 @@ class AcadosOcpCost:
 
     @cost_type_0.setter
     def cost_type_0(self, cost_type_0):
-        cost_types = ('LINEAR_LS', 'NONLINEAR_LS', 'EXTERNAL')
+        cost_types = ('LINEAR_LS', 'NONLINEAR_LS', 'EXTERNAL', 'CONVEX_OVER_NONLINEAR')
         if cost_type_0 in cost_types:
             self.__cost_type_0 = cost_type_0
         else:
@@ -818,14 +824,14 @@ class AcadosOcpCost:
         if cost_ext_fun_type in ['casadi', 'generic']:
             self.__cost_ext_fun_type = cost_ext_fun_type
         else:
-            raise Exception('Invalid cost_ext_fun_type value, expected numpy array.')
+            raise Exception("Invalid cost_ext_fun_type value, expected one in ['casadi', 'generic'].")
 
     # Mayer term
     @property
     def cost_type_e(self):
         """
         Cost type at terminal shooting node (N)
-        -- string in {EXTERNAL, LINEAR_LS, NONLINEAR_LS}.
+        -- string in {EXTERNAL, LINEAR_LS, NONLINEAR_LS, CONVEX_OVER_NONLINEAR}.
         Default: 'LINEAR_LS'.
         """
         return self.__cost_type_e
@@ -881,7 +887,7 @@ class AcadosOcpCost:
 
     @property
     def cost_ext_fun_type_e(self):
-        """Type of external function for cost at intermediate shooting nodes (1 to N-1).
+        """Type of external function for cost at terminal shooting node (N).
         -- string in {casadi, generic}
         Default: :code:'casadi'.
         """
@@ -889,7 +895,7 @@ class AcadosOcpCost:
 
     @cost_type_e.setter
     def cost_type_e(self, cost_type_e):
-        cost_types = ('LINEAR_LS', 'NONLINEAR_LS', 'EXTERNAL')
+        cost_types = ('LINEAR_LS', 'NONLINEAR_LS', 'EXTERNAL', 'CONVEX_OVER_NONLINEAR')
 
         if cost_type_e in cost_types:
             self.__cost_type_e = cost_type_e
@@ -952,7 +958,7 @@ class AcadosOcpCost:
         if cost_ext_fun_type_e in ['casadi', 'generic']:
             self.__cost_ext_fun_type_e = cost_ext_fun_type_e
         else:
-            raise Exception('Invalid cost_ext_fun_type_e value, expected numpy array.')
+            raise Exception("Invalid cost_ext_fun_type_e value, expected one in ['casadi', 'generic'].")
 
     def set(self, attr, value):
         setattr(self, attr, value)
@@ -2124,6 +2130,7 @@ class AcadosOcpOptions:
         self.__sim_method_num_stages  = 4                     # number of stages in the integrator
         self.__sim_method_num_steps   = 1                     # number of steps in the integrator
         self.__sim_method_newton_iter = 3                     # number of Newton iterations in simulation method
+        self.__sim_method_newton_tol = 0.0
         self.__sim_method_jac_reuse = 0
         self.__qp_solver_tol_stat = None                      # QP solver stationarity tolerance
         self.__qp_solver_tol_eq   = None                      # QP solver equality tolerance
@@ -2143,8 +2150,6 @@ class AcadosOcpOptions:
         self.__Tsim = None                                    # automatically calculated as tf/N
         self.__print_level = 0                                # print level
         self.__initialize_t_slacks = 0                        # possible values: 0, 1
-        self.__model_external_shared_lib_dir   = None         # path to the the .so lib
-        self.__model_external_shared_lib_name  = None         # name of the the .so lib
         self.__regularize_method = None
         self.__time_steps = None
         self.__shooting_nodes = None
@@ -2159,15 +2164,69 @@ class AcadosOcpOptions:
         self.__full_step_dual = 0
         self.__eps_sufficient_descent = 1e-4
         self.__hpipm_mode = 'BALANCE'
-
+        # TODO: move those out? they are more about generation than about the acados OCP solver.
+        self.__ext_fun_compile_flags = '-O2'
+        self.__model_external_shared_lib_dir   = None         # path to the the .so lib
+        self.__model_external_shared_lib_name  = None         # name of the the .so lib
+        self.__custom_update_filename = ''
+        self.__custom_update_header_filename = ''
 
     @property
     def qp_solver(self):
         """QP solver to be used in the NLP solver.
-        String in ('PARTIAL_CONDENSING_HPIPM', 'FULL_CONDENSING_QPOASES', 'FULL_CONDENSING_HPIPM', 'PARTIAL_CONDENSING_QPDUNES', 'PARTIAL_CONDENSING_OSQP').
+        String in ('PARTIAL_CONDENSING_HPIPM', 'FULL_CONDENSING_QPOASES', 'FULL_CONDENSING_HPIPM', 'PARTIAL_CONDENSING_QPDUNES', 'PARTIAL_CONDENSING_OSQP', 'FULL_CONDENSING_DAQP').
         Default: 'PARTIAL_CONDENSING_HPIPM'.
         """
         return self.__qp_solver
+
+    @property
+    def ext_fun_compile_flags(self):
+        """
+        String with compiler flags for external function compilation.
+        Default: '-O2'.
+        """
+        return self.__ext_fun_compile_flags
+
+
+    @property
+    def custom_update_filename(self):
+        """
+        Filename of the custom C function to update solver data and parameters in between solver calls
+
+        This file has to implement the functions
+        int custom_update_init_function([model.name]_solver_capsule* capsule);
+        int custom_update_function([model.name]_solver_capsule* capsule);
+        int custom_update_terminate_function([model.name]_solver_capsule* capsule);
+
+
+        Default: ''.
+        """
+        return self.__custom_update_filename
+
+
+    @property
+    def custom_update_header_filename(self):
+        """
+        Header filename of the custom C function to update solver data and parameters in between solver calls
+
+        This file has to declare the custom_update functions and look as follows:
+
+        ```
+        // Called at the end of solver creation.
+        // This is allowed to allocate memory and store the pointer to it into capsule->custom_update_memory.
+        int custom_update_init_function([model.name]_solver_capsule* capsule);
+
+        // Custom update function that can be called between solver calls
+        int custom_update_function([model.name]_solver_capsule* capsule, double* data, int data_len);
+
+        // Called just before destroying the solver.
+        // Responsible to free allocated memory, stored at capsule->custom_update_memory.
+        int custom_update_terminate_function([model.name]_solver_capsule* capsule);
+
+        Default: ''.
+        """
+        return self.__custom_update_header_filename
+
 
     @property
     def hpipm_mode(self):
@@ -2233,6 +2292,13 @@ class AcadosOcpOptions:
         """Regularization method for the Hessian.
         String in ('NO_REGULARIZE', 'MIRROR', 'PROJECT', 'PROJECT_REDUC_HESS', 'CONVEXIFY') or :code:`None`.
 
+        - MIRROR: performs eigenvalue decomposition H = V^T D V and sets D_ii = max(eps, abs(D_ii))
+        - PROJECT: performs eigenvalue decomposition H = V^T D V and sets D_ii = max(eps, D_ii)
+        - CONVEXIFY: Algorithm 6 from Verschueren2017, https://cdn.syscop.de/publications/Verschueren2017.pdf
+        - PROJECT_REDUC_HESS: experimental
+
+        Note: default eps = 1e-4
+
         Default: :code:`None`.
         """
         return self.__regularize_method
@@ -2283,6 +2349,15 @@ class AcadosOcpOptions:
         return self.__sim_method_newton_iter
 
     @property
+    def sim_method_newton_tol(self):
+        """
+        Tolerance of Newton system in simulation method.
+        Type: float: 0.0 means not used
+        Default: 0.0
+        """
+        return self.__sim_method_newton_tol
+
+    @property
     def sim_method_jac_reuse(self):
         """
         Integer determining if jacobians are reused within integrator or ndarray of ints > 0 of shape (N,).
@@ -2331,8 +2406,11 @@ class AcadosOcpOptions:
 
     @property
     def qp_solver_warm_start(self):
-        """QP solver: Warm starting.
-        0: no warm start; 1: warm start; 2: hot start."""
+        """
+        QP solver: Warm starting.
+        0: no warm start; 1: warm start; 2: hot start.
+        Default: 0
+        """
         return self.__qp_solver_warm_start
 
     @property
@@ -2572,7 +2650,8 @@ class AcadosOcpOptions:
     def qp_solver(self, qp_solver):
         qp_solvers = ('PARTIAL_CONDENSING_HPIPM', \
                 'FULL_CONDENSING_QPOASES', 'FULL_CONDENSING_HPIPM', \
-                'PARTIAL_CONDENSING_QPDUNES', 'PARTIAL_CONDENSING_OSQP')
+                'PARTIAL_CONDENSING_QPDUNES', 'PARTIAL_CONDENSING_OSQP', \
+                'FULL_CONDENSING_DAQP')
         if qp_solver in qp_solvers:
             self.__qp_solver = qp_solver
         else:
@@ -2606,6 +2685,29 @@ class AcadosOcpOptions:
         else:
             raise Exception('Invalid hpipm_mode value. Possible values are:\n\n' \
                     + ',\n'.join(hpipm_modes) + '.\n\nYou have: ' + hpipm_mode + '.\n\n')
+
+    @ext_fun_compile_flags.setter
+    def ext_fun_compile_flags(self, ext_fun_compile_flags):
+        if isinstance(ext_fun_compile_flags, str):
+            self.__ext_fun_compile_flags = ext_fun_compile_flags
+        else:
+            raise Exception('Invalid ext_fun_compile_flags, expected a string.\n')
+
+
+    @custom_update_filename.setter
+    def custom_update_filename(self, custom_update_filename):
+        if isinstance(custom_update_filename, str):
+            self.__custom_update_filename = custom_update_filename
+        else:
+            raise Exception('Invalid custom_update_filename, expected a string.\n')
+
+
+    @custom_update_header_filename.setter
+    def custom_update_header_filename(self, custom_update_header_filename):
+        if isinstance(custom_update_header_filename, str):
+            self.__custom_update_header_filename = custom_update_header_filename
+        else:
+            raise Exception('Invalid custom_update_header_filename, expected a string.\n')
 
     @hessian_approx.setter
     def hessian_approx(self, hessian_approx):
@@ -2978,15 +3080,16 @@ class AcadosOcp:
         """Constraints definitions, type :py:class:`acados_template.acados_ocp.AcadosOcpConstraints`"""
         self.solver_options = AcadosOcpOptions()
         """Solver Options, type :py:class:`acados_template.acados_ocp.AcadosOcpOptions`"""
-		
+
         self.acados_include_path = os.path.join(acados_path, 'include').replace(os.sep, '/') # the replace part is important on Windows for CMake
         """Path to acados include directory (set automatically), type: `string`"""
         self.acados_lib_path = os.path.join(acados_path, 'lib').replace(os.sep, '/') # the replace part is important on Windows for CMake
         """Path to where acados library is located, type: `string`"""
         self.shared_lib_ext = get_lib_ext()
 
-        import numpy
-        self.cython_include_dirs = numpy.get_include()
+        # get cython paths
+        from sysconfig import get_paths
+        self.cython_include_dirs = [np.get_include(), get_paths()['include']]
 
         self.__parameter_values = np.array([])
         self.__problem_class = 'OCP'

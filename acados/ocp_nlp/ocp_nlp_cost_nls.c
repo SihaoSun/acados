@@ -74,76 +74,28 @@ void *ocp_nlp_cost_nls_dims_assign(void *config_, void *raw_memory)
 
 
 
-void ocp_nlp_cost_nls_dims_initialize(void *config_, void *dims_, int nx, int nu, int ny, int ns, int nz)
-{
-    ocp_nlp_cost_nls_dims *dims = dims_;
-
-    dims->nx = nx;
-    dims->nu = nu;
-    dims->ny = ny;
-    dims->ns = ns;
-
-    // TODO nz
-
-    return;
-}
-
-
-
-static void ocp_nlp_cost_nls_set_nx(void *config_, void *dims_, int *nx)
-{
-    ocp_nlp_cost_nls_dims *dims = (ocp_nlp_cost_nls_dims *) dims_;
-    dims->nx = *nx;
-}
-
-
-
-static void ocp_nlp_cost_nls_set_nu(void *config_, void *dims_, int *nu)
-{
-    ocp_nlp_cost_nls_dims *dims = (ocp_nlp_cost_nls_dims *) dims_;
-    dims->nu = *nu;
-}
-
-
-
-static void ocp_nlp_cost_nls_set_ny(void *config_, void *dims_, int *ny)
-{
-    ocp_nlp_cost_nls_dims *dims = (ocp_nlp_cost_nls_dims *) dims_;
-    dims->ny = *ny;
-}
-
-
-
-static void ocp_nlp_cost_nls_set_ns(void *config_, void *dims_, int *ns)
-{
-    ocp_nlp_cost_nls_dims *dims = (ocp_nlp_cost_nls_dims *) dims_;
-    dims->ns = *ns;
-}
-
-
-
 void ocp_nlp_cost_nls_dims_set(void *config_, void *dims_, const char *field, int* value)
 {
+    ocp_nlp_cost_nls_dims *dims = (ocp_nlp_cost_nls_dims *) dims_;
     if (!strcmp(field, "nx"))
     {
-        ocp_nlp_cost_nls_set_nx(config_, dims_, value);
+        dims->nx = *value;
     }
     else if (!strcmp(field, "nz"))
     {
-        // do nothing
-        // TODO(oj): implement cost with daes
+        dims->nz = *value;
     }
     else if (!strcmp(field, "nu"))
     {
-        ocp_nlp_cost_nls_set_nu(config_, dims_, value);
+        dims->nu = *value;
     }
     else if (!strcmp(field, "ny"))
     {
-        ocp_nlp_cost_nls_set_ny(config_, dims_, value);
+        dims->ny = *value;
     }
     else if (!strcmp(field, "ns"))
     {
-        ocp_nlp_cost_nls_set_ns(config_, dims_, value);
+        dims->ns = *value;
     }
     else
     {
@@ -246,6 +198,9 @@ void *ocp_nlp_cost_nls_model_assign(void *config_, void *dims_, void *raw_memory
     // default initialization
     model->scaling = 1.0;
 
+    // initialize to 1 to update factorization of W in precompute
+    model->W_changed = 1;
+
     // assert
     assert((char *) raw_memory + ocp_nlp_cost_nls_model_calculate_size(config_, dims) >= c_ptr);
 
@@ -277,7 +232,7 @@ int ocp_nlp_cost_nls_model_set(void *config_, void *dims_, void *model_,
     {
         double *W_col_maj = (double *) value_;
         blasfeo_pack_dmat(ny, ny, W_col_maj, ny, &model->W, 0, 0);
-        // NOTE(oj): W_chol is computed in _initialize(), called in preparation phase.
+        // NOTE(oj): W_chol is computed in _initialize(), called in preparation phase, if W changed
     }
     else if (!strcmp(field, "y_ref") || !strcmp(field, "yref"))
     {
@@ -595,6 +550,7 @@ acados_size_t ocp_nlp_cost_nls_workspace_calculate_size(void *config_, void *dim
 
     // extract dims
     int nx = dims->nx;
+    int nz = dims->nz;
     int nu = dims->nu;
     int ny = dims->ny;
     int ns = dims->ns;
@@ -605,8 +561,11 @@ acados_size_t ocp_nlp_cost_nls_workspace_calculate_size(void *config_, void *dim
 
     size += 1 * blasfeo_memsize_dmat(nu + nx, ny);       // tmp_nv_ny
     size += 1 * blasfeo_memsize_dmat(nu + nx, nu + nx);  // tmp_nv_nv
+    size += 1 * blasfeo_memsize_dmat(nu + nx, ny);  // Cyt_tilde
+    size += 1 * blasfeo_memsize_dmat(nz, ny);           // Vz
     size += 1 * blasfeo_memsize_dvec(ny);                // tmp_ny
     size += 1 * blasfeo_memsize_dvec(2*ns);              // tmp_2ns
+    size += 1 * blasfeo_memsize_dvec(nz);           // tmp_nz
 
     size += 64;  // blasfeo_mem align
 //    size += 8;
@@ -625,27 +584,35 @@ static void ocp_nlp_cost_nls_cast_workspace(void *config_, void *dims_, void *op
     int nx = dims->nx;
     int nu = dims->nu;
     int ny = dims->ny;
+    int nz = dims->nz;
     int ns = dims->ns;
 
     char *c_ptr = (char *) work_;
     c_ptr += sizeof(ocp_nlp_cost_nls_workspace);
-
-//    align_char_to(8, &c_ptr);
 
     // blasfeo_mem align
     align_char_to(64, &c_ptr);
 
     // tmp_nv_ny
     assign_and_advance_blasfeo_dmat_mem(nu + nx, ny, &work->tmp_nv_ny, &c_ptr);
-   
+
     // tmp_nv_nv
     assign_and_advance_blasfeo_dmat_mem(nu + nx, nu + nx, &work->tmp_nv_nv, &c_ptr);
+
+    // Vz
+    assign_and_advance_blasfeo_dmat_mem(nz, ny, &work->Vz, &c_ptr);
+
+    // Cyt_tilde
+    assign_and_advance_blasfeo_dmat_mem(nu + nx, ny, &work->Cyt_tilde, &c_ptr);
 
     // tmp_ny
     assign_and_advance_blasfeo_dvec_mem(ny, &work->tmp_ny, &c_ptr);
 
     // tmp_2ns
     assign_and_advance_blasfeo_dvec_mem(2*ns, &work->tmp_2ns, &c_ptr);
+
+    // tmp_nz
+    assign_and_advance_blasfeo_dvec_mem(nz, &work->tmp_nz, &c_ptr);
 
     assert((char *) work + ocp_nlp_cost_nls_workspace_calculate_size(config_, dims, opts_) >= c_ptr);
 
@@ -658,28 +625,47 @@ static void ocp_nlp_cost_nls_cast_workspace(void *config_, void *dims_, void *op
  * functions
  ************************************************/
 
-// TODO(giaf) move factorization of W into pre-compute???
-// NOTE(oj): factorization should stay here, precompute is only called at creation, initialize in every SQP call.
-// Thus, updating W would not work properly in precompute.
+static void ocp_nlp_cost_nls_update_W_factorization(void *config_, void *dims_, void *model_, void *opts_, void *memory_, void *work_)
+{
+    ocp_nlp_cost_nls_dims *dims = dims_;
+    ocp_nlp_cost_nls_model *model = model_;
+    ocp_nlp_cost_nls_memory *memory = memory_;
+
+    ocp_nlp_cost_nls_cast_workspace(config_, dims_, opts_, work_);
+
+    int ny = dims->ny;
+
+    if (model->W_changed)
+    {
+        blasfeo_dpotrf_l(ny, &model->W, 0, 0, &memory->W_chol, 0, 0);
+        model->W_changed = 0;
+    }
+    return;
+}
+
+
+
+void ocp_nlp_cost_nls_precompute(void *config_, void *dims_, void *model_, void *opts_, void *memory_, void *work_)
+{
+    ocp_nlp_cost_nls_model *model = model_;
+    model->W_changed = 1;
+    ocp_nlp_cost_nls_update_W_factorization(config_, dims_, model_, opts_, memory_, work_);
+    return;
+}
+
+
+
 void ocp_nlp_cost_nls_initialize(void *config_, void *dims_, void *model_, void *opts_,
                                  void *memory_, void *work_)
 {
     ocp_nlp_cost_nls_dims *dims = dims_;
     ocp_nlp_cost_nls_model *model = model_;
     ocp_nlp_cost_nls_memory *memory = memory_;
-    // ocp_nlp_cost_nls_workspace *work= work_;
 
-    ocp_nlp_cost_nls_cast_workspace(config_, dims, opts_, work_);
+    ocp_nlp_cost_nls_cast_workspace(config_, dims_, opts_, work_);
+    ocp_nlp_cost_nls_update_W_factorization(config_, dims_, model_, opts_, memory_, work_);
 
-    // int nx = dims->nx;
-    // int nu = dims->nu;
-    int ny = dims->ny;
     int ns = dims->ns;
-
-    // TODO(all): recompute factorization only if W are re-tuned ???
-    blasfeo_dpotrf_l(ny, &model->W, 0, 0, &memory->W_chol, 0, 0);
-
-    // mem->Z = scaling * model->Z
     blasfeo_dveccpsc(2*ns, model->scaling, &model->Z, 0, memory->Z, 0);
 
     return;
@@ -699,12 +685,13 @@ void ocp_nlp_cost_nls_update_qp_matrices(void *config_, void *dims_, void *model
     ocp_nlp_cost_nls_cast_workspace(config_, dims, opts_, work_);
 
     int nx = dims->nx;
+    int nz = dims->nz;
     int nu = dims->nu;
     int ny = dims->ny;
     int ns = dims->ns;
 
-    ext_fun_arg_t ext_fun_type_in[3];
-    void *ext_fun_in[3];
+    ext_fun_arg_t ext_fun_type_in[4];
+    void *ext_fun_in[4];
     ext_fun_arg_t ext_fun_type_out[3];
     void *ext_fun_out[3];
 
@@ -719,14 +706,17 @@ void ocp_nlp_cost_nls_update_qp_matrices(void *config_, void *dims_, void *model
 
     ext_fun_type_in[0] = BLASFEO_DVEC_ARGS;
     ext_fun_in[0] = &x_in;
-
     ext_fun_type_in[1] = BLASFEO_DVEC_ARGS;
     ext_fun_in[1] = &u_in;
+    ext_fun_type_in[2] = BLASFEO_DVEC;
+    ext_fun_in[2] = memory->z_alg;
 
     ext_fun_type_out[0] = BLASFEO_DVEC;
     ext_fun_out[0] = &memory->res;  // fun: ny
     ext_fun_type_out[1] = BLASFEO_DMAT;
     ext_fun_out[1] = &memory->Jt;  // jac': (nu+nx) * ny
+    ext_fun_type_out[2] = BLASFEO_DMAT;
+    ext_fun_out[2] = &work->Vz;  // jac_yexpr_z:  ny * nz
 
     // evaluate external function
     model->nls_y_fun_jac->evaluate(model->nls_y_fun_jac, ext_fun_type_in, ext_fun_in,
@@ -745,9 +735,33 @@ void ocp_nlp_cost_nls_update_qp_matrices(void *config_, void *dims_, void *model
     // tmp_ny = W * res
     blasfeo_dsymv_l(ny, 1.0, &model->W, 0, 0, &memory->res, 0,
                     0.0, &model->y_ref, 0, &work->tmp_ny, 0);
-    // grad = Jt * tmp_ny
-    blasfeo_dgemv_n(nu+nx, ny, 1.0, &memory->Jt, 0, 0, &work->tmp_ny, 0,
-                    0.0, &memory->grad, 0, &memory->grad, 0);
+
+    if (nz > 0)
+    {
+        // Cy_tilde = Jt + dzdux_tran*Vz^T
+        blasfeo_dgemm_nt(nu + nx, ny, nz, 1.0, memory->dzdux_tran, 0, 0,
+                &work->Vz, 0, 0, 1.0, &memory->Jt, 0, 0, &work->Cyt_tilde, 0, 0);
+
+        // grad = Cyt_tilde * tmp_ny
+        blasfeo_dgemv_n(nu+nx, ny, 1.0, &work->Cyt_tilde, 0, 0, &work->tmp_ny, 0,
+                        0.0, &memory->grad, 0, &memory->grad, 0);
+
+
+        // gauss-newton component update
+        // tmp_nv_ny = W_chol * Cyt_tilde
+        blasfeo_dtrmm_rlnn(nu + nx, ny, 1.0, &memory->W_chol, 0, 0,
+                           &work->Cyt_tilde, 0, 0, &work->tmp_nv_ny, 0, 0);
+    }
+    else
+    {
+        // grad = Jt * tmp_ny
+        blasfeo_dgemv_n(nu+nx, ny, 1.0, &memory->Jt, 0, 0, &work->tmp_ny, 0,
+                        0.0, &memory->grad, 0, &memory->grad, 0);
+        // gauss-newton component update
+        // tmp_nv_ny = Jt * W_chol, where W_chol is lower triangular
+        blasfeo_dtrmm_rlnn(nu+nx, ny, 1.0, &memory->W_chol, 0, 0, &memory->Jt, 0, 0,
+                            &work->tmp_nv_ny, 0, 0);
+    }
 
     // function
     memory->fun = 0.5 * blasfeo_ddot(ny, &work->tmp_ny, 0, &memory->res, 0);
@@ -762,11 +776,6 @@ void ocp_nlp_cost_nls_update_qp_matrices(void *config_, void *dims_, void *model
 
 
     /* hessian */
-    // gauss-newton component update
-    // tmp_nv_ny = Jt * W_chol, where W_chol is lower triangular
-    blasfeo_dtrmm_rlnn(nu+nx, ny, 1.0, &memory->W_chol, 0, 0, &memory->Jt, 0, 0,
-                        &work->tmp_nv_ny, 0, 0);
-
     if (opts->gauss_newton_hess)
     {
         // RSQrq += scaling * tmp_nv_ny * tmp_nv_ny^T
@@ -775,13 +784,18 @@ void ocp_nlp_cost_nls_update_qp_matrices(void *config_, void *dims_, void *model
     }
     else
     {
+        if (nz > 0)
+        {
+            printf("\nocp_nlp_cost_nls_update_qp_matrices: nz > 0 only implemented for gauss_newton_hess.\n");
+            exit(1);
+        }
         // NOTE(oj): this should add the non-Gauss-Newton term to RSQrq,
         // the product < r, d2_d[x,u] r >, where the cost is 0.5 * norm2(r(x,u))^2
         // exact hessian of ls cost
 
         // ext_fun_[type_]in 0,1 are the same as before.
-        ext_fun_type_in[2] = BLASFEO_DVEC;
-        ext_fun_in[2] = &work->tmp_ny;  // fun: ny
+        ext_fun_type_in[3] = BLASFEO_DVEC;
+        ext_fun_in[3] = &work->tmp_ny;  // fun: ny
 
         ext_fun_type_out[0] = BLASFEO_DMAT;
         ext_fun_out[0] = &work->tmp_nv_nv;   // hess*fun: (nu+nx) * (nu+nx)
@@ -861,6 +875,9 @@ void ocp_nlp_cost_nls_compute_fun(void *config_, void *dims_, void *model_,
     ext_fun_type_in[1] = BLASFEO_DVEC_ARGS;
     ext_fun_in[1] = &u_in;
 
+    ext_fun_type_in[2] = BLASFEO_DVEC;
+    ext_fun_in[2] = memory->z_alg;
+
     ext_fun_type_out[0] = BLASFEO_DVEC;
     ext_fun_out[0] = &memory->res;  // fun: ny
 
@@ -903,7 +920,6 @@ void ocp_nlp_cost_nls_config_initialize_default(void *config_)
 
     config->dims_calculate_size = &ocp_nlp_cost_nls_dims_calculate_size;
     config->dims_assign = &ocp_nlp_cost_nls_dims_assign;
-    config->dims_initialize = &ocp_nlp_cost_nls_dims_initialize;
     config->dims_set = &ocp_nlp_cost_nls_dims_set;
     config->dims_get = &ocp_nlp_cost_nls_dims_get;
     config->model_calculate_size = &ocp_nlp_cost_nls_model_calculate_size;
@@ -929,6 +945,7 @@ void ocp_nlp_cost_nls_config_initialize_default(void *config_)
     config->update_qp_matrices = &ocp_nlp_cost_nls_update_qp_matrices;
     config->compute_fun = &ocp_nlp_cost_nls_compute_fun;
     config->config_initialize_default = &ocp_nlp_cost_nls_config_initialize_default;
+    config->precompute = &ocp_nlp_cost_nls_precompute;
 
     return;
 }

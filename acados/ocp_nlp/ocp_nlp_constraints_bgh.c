@@ -93,27 +93,6 @@ void *ocp_nlp_constraints_bgh_dims_assign(void *config_, void *raw_memory)
 }
 
 
-
-// TODO outdated? to remove?
-void ocp_nlp_constraints_bgh_dims_initialize(void *config_, void *dims_, int nx, int nu, int nz, int nbx,
-                                             int nbu, int ng, int nh, int dummy0, int ns)
-{
-    ocp_nlp_constraints_bgh_dims *dims = dims_;
-
-    dims->nx = nx;
-    dims->nu = nu;
-    dims->nz = nz;
-    dims->nbx = nbx;
-    dims->nbu = nbu;
-    dims->nb = nbx + nbu;
-    dims->ng = ng;
-    dims->nh = nh;
-    dims->ns = ns;
-
-    return;
-}
-
-
 /* dimension setters */
 static void ocp_nlp_constraints_bgh_set_nx(void *config_, void *dims_, const int *nx)
 {
@@ -660,12 +639,11 @@ int ocp_nlp_constraints_bgh_model_set(void *config_, void *dims_,
     int nge = dims->nge;
     int nhe = dims->nhe;
 
-    // TODO(oj): document which strings mean what! - adapted from prev implementation..
-    if (!strcmp(field, "lb")) // TODO remove !!!
+    if (!strcmp(field, "lb")) // NOTE: should not be used, but is still in C examplex, remove.
     {
         blasfeo_pack_dvec(nb, value, 1, &model->d, 0);
     }
-    else if (!strcmp(field, "ub")) // TODO remove !!!
+    else if (!strcmp(field, "ub")) // NOTE: should not be used, but is still in C examplex, remove.
     {
         blasfeo_pack_dvec(nb, value, 1, &model->d, nb+ng+nh);
     }
@@ -821,6 +799,102 @@ int ocp_nlp_constraints_bgh_model_set(void *config_, void *dims_,
 
     return ACADOS_SUCCESS;
 }
+
+
+
+void ocp_nlp_constraints_bgh_model_get(void *config_, void *dims_,
+                         void *model_, const char *field, void *value)
+{
+    ocp_nlp_constraints_bgh_dims *dims = (ocp_nlp_constraints_bgh_dims *) dims_;
+    ocp_nlp_constraints_bgh_model *model = (ocp_nlp_constraints_bgh_model *) model_;
+
+    int ii;
+    int *ptr_i;
+
+    if (!dims || !model || !field || !value)
+    {
+        printf("ocp_nlp_constraints_bgh_model_get: got Null pointer \n");
+        exit(1);
+    }
+
+    int nu = dims->nu;
+    int nx = dims->nx;
+    int nb = dims->nb;
+    int ng = dims->ng;
+    int nh = dims->nh;
+    // int ns = dims->ns;
+    // int nsbu = dims->nsbu;
+    // int nsbx = dims->nsbx;
+    // int nsg = dims->nsg;
+    // int nsh = dims->nsh;
+    int nbx = dims->nbx;
+    int nbu = dims->nbu;
+    // int nbue = dims->nbue;
+    // int nbxe = dims->nbxe;
+    // int nge = dims->nge;
+    // int nhe = dims->nhe;
+
+    if (!strcmp(field, "idxbx"))
+    {
+        ptr_i = (int *) value;
+        for (ii=0; ii < nbx; ii++)
+            ptr_i[ii] = model->idxb[ii+nbu] - nu;
+    }
+    else if (!strcmp(field, "lbx"))
+    {
+        blasfeo_unpack_dvec(nbx, &model->d, nbu, value, 1);
+    }
+    else if (!strcmp(field, "ubx"))
+    {
+        // printf("getting ubx\n")
+        blasfeo_unpack_dvec(nbx, &model->d, nb + ng + nh + nbu, value, 1);
+    }
+    else if (!strcmp(field, "idxbu"))
+    {
+        ptr_i = (int *) value;
+        for (ii=0; ii < nbu; ii++)
+            ptr_i[ii] = model->idxb[ii];
+    }
+    else if (!strcmp(field, "lbu"))
+    {
+        blasfeo_unpack_dvec(nbu, &model->d, 0, value, 1);
+    }
+    else if (!strcmp(field, "ubu"))
+    {
+        blasfeo_unpack_dvec(nbu, &model->d, nb + ng + nh, value, 1);
+    }
+    else if (!strcmp(field, "lg"))
+    {
+        blasfeo_unpack_dvec(ng, &model->d, nb, value, 1);
+    }
+    else if (!strcmp(field, "ug"))
+    {
+        blasfeo_unpack_dvec(ng, &model->d, nb + ng + nh + nb, value, 1);
+    }
+    else if (!strcmp(field, "lh"))
+    {
+        blasfeo_unpack_dvec(nh, &model->d, nb + ng, value, 1);
+    }
+    else if (!strcmp(field, "uh"))
+    {
+        blasfeo_unpack_dvec(nh, &model->d, nb + ng + nh + nb + ng, value, 1);
+    }
+    // TODO: C, D?
+    else if (!strcmp(field, "Ct"))
+    {
+        blasfeo_unpack_dmat(nx, ng, &model->DCt, nu, 0, value, nx);
+    }
+    else if (!strcmp(field, "Dt"))
+    {
+        blasfeo_unpack_dmat(nu, ng, &model->DCt, 0, 0, value, nu);
+    }
+    else
+    {
+        printf("\nerror: ocp_nlp_constraints_bgh_model_get field %s not available.\n", field);
+        exit(1);
+    }
+}
+
 
 
 /************************************************
@@ -1568,12 +1642,12 @@ void ocp_nlp_constraints_bgh_config_initialize_default(void *config_)
 
     config->dims_calculate_size = &ocp_nlp_constraints_bgh_dims_calculate_size;
     config->dims_assign = &ocp_nlp_constraints_bgh_dims_assign;
-    config->dims_initialize = &ocp_nlp_constraints_bgh_dims_initialize;
     config->dims_set = &ocp_nlp_constraints_bgh_dims_set;
     config->dims_get = &ocp_nlp_constraints_bgh_dims_get;
     config->model_calculate_size = &ocp_nlp_constraints_bgh_model_calculate_size;
     config->model_assign = &ocp_nlp_constraints_bgh_model_assign;
     config->model_set = &ocp_nlp_constraints_bgh_model_set;
+    config->model_get = &ocp_nlp_constraints_bgh_model_get;
     config->opts_calculate_size = &ocp_nlp_constraints_bgh_opts_calculate_size;
     config->opts_assign = &ocp_nlp_constraints_bgh_opts_assign;
     config->opts_initialize_default = &ocp_nlp_constraints_bgh_opts_initialize_default;

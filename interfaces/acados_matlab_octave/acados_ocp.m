@@ -184,8 +184,16 @@ classdef acados_ocp < handle
                 disp('found compiled acados MEX interface')
             end
 
+            % check for unsupported options:
+            if strcmp(obj.opts_struct.qp_solver, "partial_condensing_osqp") || strcmp(obj.opts_struct.qp_solver, "partial_condensing_hpmpc") || strcmp(obj.opts_struct.qp_solver, "partial_condensing_qpdunes") || ...
+                strcmp(obj.opts_struct.qp_solver, "partial_condensing_ooqp")
+                if obj.model_struct.dim_ns > 0 || obj.model_struct.dim_ns_e > 0
+                    error(['selected QP solver ', obj.opts_struct.qp_solver, ' does not support soft constraints (yet).'])
+                end
+            end
+
+            % create C object
             try
-                % create C object
                 obj.C_ocp = ocp_create(obj.model_struct, obj.opts_struct);
             catch ex
                 str = sprintf('Exception:\n\t%s\n\t%s\n',ex.identifier,ex.message);
@@ -226,7 +234,7 @@ classdef acados_ocp < handle
             % set up acados_ocp_nlp_json
             obj.acados_ocp_nlp_json = set_up_acados_ocp_nlp_json(obj, simulink_opts);
             % render templated code
-            ocp_generate_c_code(obj)
+            ocp_generate_c_code(obj);
         end
 
 
@@ -384,7 +392,7 @@ classdef acados_ocp < handle
                 if strcmp(ocp_solver_string, 'sqp')
                     fprintf('\niter\tres_stat\tres_eq\t\tres_ineq\tres_comp\tqp_stat\tqp_iter\talpha\t');
                     if size(stat,2)>8
-                        fprintf('\t\tqp_res_stat\tqp_res_eq\tqp_res_ineq\tqp_res_comp');
+                        fprintf('\tqp_res_stat\tqp_res_eq\tqp_res_ineq\tqp_res_comp');
                     end
                     fprintf('\n');
                     for jj=1:size(stat,1)
