@@ -891,7 +891,7 @@ class AcadosOcpSolver:
 
 
     @classmethod
-    def create_cython_solver(cls, json_file):
+    def create_cython_solver(cls, json_file, module_generated_code=None):
         """
         Returns an `AcadosOcpSolverCython` object.
 
@@ -906,7 +906,11 @@ class AcadosOcpSolver:
 
         importlib.invalidate_caches()
         rel_code_export_directory = os.path.relpath(code_export_directory)
-        acados_ocp_solver_pyx = importlib.import_module(f'{rel_code_export_directory}.acados_ocp_solver_pyx')
+               
+        if module_generated_code==None:
+            acados_ocp_solver_pyx = importlib.import_module(f'{rel_code_export_directory}.acados_ocp_solver_pyx')
+        else:
+            acados_ocp_solver_pyx = importlib.import_module('.acados_ocp_solver_pyx',module_generated_code)
 
         AcadosOcpSolverCython = getattr(acados_ocp_solver_pyx, 'AcadosOcpSolverCython')
         return AcadosOcpSolverCython(acados_ocp_json['model']['name'],
